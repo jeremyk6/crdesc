@@ -13,12 +13,12 @@ with open('requirements.txt') as f:
 
 # This call to setup() does all the work
 setup(
-    name="crossroads-description",
-    version="0.7.1",
-    description="Crossroads description is a python tool that produces automatic description of data from OpenStreetMap.",
+    name="crdesc",
+    version="0.1",
+    description="crdesc is a python package that produces a textual description from a crmodel.",
     long_description=README,
     long_description_content_type="text/markdown",
-    url="https://gitlab.limos.fr/jeremyk6/crossroads-description/",
+    url="https://github.com/jeremyk6/crdesc/",
     author="Jérémy Kalsron",
     author_email="jeremy.kalsron@gmail.com  ",
     license="AGPL-3.0",

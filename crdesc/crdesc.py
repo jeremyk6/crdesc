@@ -1,225 +1,92 @@
-from .model import *
-from .segmentationReader import *
-from .utils import *
 from pyrealb import *
-import networkx as nx
+from crmodel.model import *
+import json
 from geojson import Point, LineString, Feature, FeatureCollection, dumps
 
-class Description:
+class CrDesc:
 
     def __init__(self):
 
         self.crossroad = None
-        Junction._junctions = {}
 
-    def computeModel(self, G, segmentation_file):
-        #
-        # Model completion
-        #
+    def loadModel(self, json_file):
 
-        seg_crossroad = SegmentationReader(segmentation_file).getCrossroads()[0]
+        data = json.load(open(json_file))
 
-        # intersection center. Computed by mean coordinates, may use convex hull + centroid later
-        crossroad_center = meanCoordinates(G, seg_crossroad.border_nodes)
+        # Pedestrian Nodes
+        pedestrian_nodes = {}
+        for id in data["pedestrian_nodes"]:
 
-        # crossroad nodes creation
-        crossroad_inner_nodes = {}
-        crossroad_border_nodes = {}
-        crossroad_external_nodes = {}
-        for node_id in seg_crossroad.inner_nodes:
-            crossroad_inner_nodes[node_id] = createJunction(node_id, G.nodes[node_id])
-        for node_id in seg_crossroad.border_nodes:
-            crossroad_border_nodes[node_id] = createJunction(node_id, G.nodes[node_id])
-        for branch in seg_crossroad.branches :
-            for node_id in branch.border_nodes:
-                if node_id not in (list(crossroad_inner_nodes.keys()) + list(crossroad_border_nodes.keys())):
-                    crossroad_external_nodes[node_id] = createJunction(node_id, G.nodes[node_id])
+            p = data["pedestrian_nodes"][id]
 
-        #crossroad edges creation
-        crossroad_edges = {}
-        for edge in seg_crossroad.edges_by_nodes:
-            edge_id = "%s%s"%(edge[0],edge[1])
-            crossroad_edges[edge_id] = createWay(edge, G)
-        for branch in seg_crossroad.branches:
-            for edge in branch.edges_by_nodes:
-                edge_id = "%s%s"%(edge[0],edge[1])
-                crossroad_edges[edge_id] = createWay(edge, G, seg_crossroad.border_nodes)    
+            if p["type"] == "Island":
+                pedestrian_nodes[id] = Island(id)
+            if p["type"] == "Sidewalk":
+                pedestrian_nodes[id] = Sidewalk(id)
 
-        # Get border path of the intersection, then keep only the border nodes (the external nodes of the branches)
-        border_path = getBorderPath(G, crossroad_inner_nodes, crossroad_border_nodes, crossroad_external_nodes, crossroad_edges)
-        external_nodes = [junction.id for junction in crossroad_external_nodes.values()] #list(dict.fromkeys(filter(lambda node : node in  list(crossroad_external_nodes.keys()), border_path)))
-        branch_edges = getBranchesEdges(border_path, seg_crossroad.branches, external_nodes)
+        # Junctions
+        junctions = {}
+        for id in data["junctions"]:
 
-        # create branches
-        branches = {}
-        for edge in branch_edges:
-            if not edge["branch_id"] in branches:
-                branches[edge["branch_id"]] = Branch(edge["branch_id"], None, None, None, [])
-            branch = branches[edge["branch_id"]]
-            branch.ways.append(crossroad_edges[edge["edge_id"]])
+            j = data["junctions"][id]
 
-        # add branches attributes
-        min = None
-        max = None
-        for branch_id, branch in branches.items():
-            nodes = []
-            for way in branch.ways:
-                if way.name != None : 
-                    branch.street_name = [way.name.split(" ").pop(0).lower()," ".join(way.name.split(" ")[1:])]
-                if way.junctions[0].id not in nodes : nodes.append(way.junctions[0].id)
-                if way.junctions[1].id not in nodes : nodes.append(way.junctions[1].id)
-            # compute branch bearing
-            branch.angle = meanAngle(G, nodes, crossroad_center)
-            if min is None: min,max = branch,branch
-            if branch.angle < min.angle: min = branch
-            if branch.angle > max.angle: max = branch
+            junctions[id] = Junction(id, j["x"], j["y"])
+            if "Crosswalk" in j["type"]:
+                junctions[id] = Crosswalk(
+                    junctions[id], 
+                    j["cw_tactile_paving"], 
+                    [pedestrian_nodes[pn_id] for pn_id in j["pedestrian_nodes"]]
+                )
+            if "Traffic_light" in j["type"]:
+                junctions[id] = Traffic_light(
+                    junctions[id], 
+                    j["tl_phase"], 
+                    j["tl_direction"]
+                )
+            if "Pedestrian_traffic_light" in j["type"]:
+                junctions[id] = Pedestrian_traffic_light(
+                    junctions[id], 
+                    j["ptl_sound"]
+                )
 
-        # get the branch nearest to the north, then shift the branches list
-        branches = list(branches.values())
-        index = branches.index(max) if 360 - max.angle < min.angle else branches.index(min)
-        branches = branches[index:] + branches[:index]
+        # Ways & channels
+        ways = {}
+        for id in data["ways"]:
 
-        # number branches according to their actuel order
-        for i in range(len(branches)):
-            branches[i].number = i + 1
+            w = data["ways"][id]
 
-        #
-        # Sidewalks and islands generation
-        #
+            channels = []
+            for channel in w["channels"]:
+                if channel["type"] == "Bus":
+                    channels.append(Bus(None, channel["direction"]))
+                else:
+                    channels.append(Road(None, channel["direction"]))
 
-        sidewalk_paths = getSidewalks(border_path, branches, external_nodes)
-
-        # graph cleaning to remove edges that are not part of the crossroads
-        G = cleanGraph(G, crossroad_edges)
-
-        # Get sidewalks
-        sidewalks = []
-        for sidewalk_id, sidewalk_path in enumerate(sidewalk_paths):
-            sidewalk = Sidewalk(sidewalk_id)
-            sidewalks.append(sidewalk)
-            for j, node in enumerate(sidewalk_path):
-                if j < len(sidewalk_path)-1:
-                    n1 = sidewalk_path[j]
-                    n2 = sidewalk_path[j+1]
-                    way = None
-                    ids = ["%s%s"%(n1,n2), "%s%s"%(n2,n1)]
-                    for id in ids:
-                        if id in crossroad_edges:
-                            way = crossroad_edges[id]
-                    # if the way does not exist we create it (may not happen but sometimes it is)
-                    if not way:
-                        way = createWay([n1,n2], G)
-                        crossroad_edges[id] = way
-                    # if the sidewalk goes in the same direction as the way, it's the left sidewalk. Otherwise it's the right one.
-                    if way.junctions[0].id == n1:
-                        way.sidewalks[0] = sidewalk
-                    else:
-                        way.sidewalks[1] = sidewalk
-                    # add pedestrian nodes to the crosswalks in the way
-                    for junction in way.junctions:
-                        if "Crosswalk" in junction.type:
-                            if sidewalk not in junction.pedestrian_nodes:
-                                junction.pedestrian_nodes.append(sidewalk)
-
-        # Get islands in the crossroads
-        islands = []
-        for island_id, island_path in enumerate(getIslands(G, branches, crossroad_border_nodes)):
-            if not isPolygonClockwiseOrdered(island_path, G):
-                island_path = list(reversed(island_path))
-            # island is not closed by NetworkX, we close it
-            island_path.append(island_path[0])
-            island = Island(island_id)
-            islands.append(island)
-            for j, node in enumerate(island_path):
-                if j < len(island_path)-1:
-                    n1 = island_path[j]
-                    n2 = island_path[j+1]
-                    way = None
-                    ids = ["%s%s"%(n1,n2), "%s%s"%(n2,n1)]
-                    for id in ids:
-                        if id in crossroad_edges:
-                            way = crossroad_edges[id]
-                    if way:
-                        if way.junctions[0].id == n1:
-                            way.islands[1] = island
-                        else:
-                            way.islands[0] = island
-                        # add pedestrian nodes to the crosswalks in the way
-                        for junction in way.junctions:
-                            if "Crosswalk" in junction.type:
-                                if island not in junction.pedestrian_nodes:
-                                    junction.pedestrian_nodes.append(island)
-
-        #
-        # Crossings creation
-        #
-
-        crosswalks = Junction.getJunctions("Crosswalk")
-
-
-        # if two crosswalks share the same pedestrian nodes, choose the nearest to the crossroads
-        to_delete = []
-        for c1 in crosswalks:
-            for c2 in crosswalks:
-                if c1 != c2:
-                    if c1.pedestrian_nodes == c2.pedestrian_nodes or c1.pedestrian_nodes[::-1] == c2.pedestrian_nodes:
-                        if c1.id in [n.id for n in crossroad_border_nodes.values()]:
-                            to_delete.append(c2)
-        for d in to_delete: crosswalks.remove(d)
-
-        # create dual graph
-        pG = nx.Graph()
-        for crosswalk in crosswalks:
-            pG.add_edge(
-                "s%s"%crosswalk.pedestrian_nodes[0].id if isinstance(crosswalk.pedestrian_nodes[0], Sidewalk) else "i%s"%crosswalk.pedestrian_nodes[0].id, 
-                "s%s"%crosswalk.pedestrian_nodes[1].id if isinstance(crosswalk.pedestrian_nodes[1], Sidewalk) else "i%s"%crosswalk.pedestrian_nodes[1].id, 
-                crosswalk=crosswalk
+            ways[id] = Way(
+                id, 
+                w["name"], 
+                [junctions[j_id] for j_id in w["junctions"]], 
+                channels, 
+                [pedestrian_nodes[p_id] if p_id else None for p_id in w["sidewalks"]], 
+                [pedestrian_nodes[p_id] if p_id else None for p_id in w["islands"]]
             )
 
-        # compute crossings
-        crossings = {}
-        for sidewalk_start in sidewalks:
-            for sidewalk_end in list(set(sidewalks) - set([sidewalk_start])):
-                try:
-                    crossing = nx.shortest_path(pG, "s%s"%sidewalk_start.id, "s%s"%sidewalk_end.id)
-                except: # this sidewalk can't be reached
-                    continue
-                crossing_id = ";".join(crossing)
-                if crossing_id.count("s") <= 2: # we keep paths that don't go through other sidewalks
-                    if crossing_id not in crossings.keys() and ";".join(crossing_id.split(";")[::-1]) not in crossings.keys():
-                        crosswalk_list = [pG[crossing[i]][crossing[i+1]]["crosswalk"] for i in range(len(crossing)-1)]
-                        crossings[crossing_id] = Crossing(crossing_id, crosswalk_list)
+        # Branches
+        branches = {}
+        for id in data["branches"]:
 
-        # attach crossings to a branch
-        for branch in branches:
+            b = data["branches"][id]
 
-            # Retrieve branch sidewalks
-            branch_sidewalks = []
-            for items in [way.sidewalks for way in branch.ways]:
-                for sidewalk in items:
-                    if sidewalk is not None and sidewalk not in branch_sidewalks:
-                        branch_sidewalks.append(sidewalk)
-            
-            # Retrieve crossing sidewalks
-            for crossing in crossings.values():
-                crossing_sidewalks = []
-                for crosswalk in crossing.crosswalks:
-                    for pedestrian_node in crosswalk.pedestrian_nodes:
-                        if isinstance(pedestrian_node, Sidewalk):
-                            crossing_sidewalks.append(pedestrian_node)
-                # If the branch and the crossing share the same sidewalks, it's the branch's corssing
-                if branch_sidewalks == crossing_sidewalks or branch_sidewalks[::-1] == crossing_sidewalks:
-                    branch.set_crossing(crossing)
-                    break
+            branches[id] = Branch(
+                b["angle"],
+                b["direction_name"],
+                b["street_name"],
+                [ways[w_id] for w_id in b["ways"]],
+                id,
+                Crossing(None, [junctions[c_id] for c_id in b["crossing"]["crosswalks"]])
+            )
 
-        #
-        # Crossroad creation
-        #
-
-        self.crossroad = Intersection(None, branches, crossroad_center)
-        self.crossroad.junctions = {**crossroad_inner_nodes, **crossroad_border_nodes}
-        self.crossroad.ways = crossroad_edges
-        self.crossroad.crossings = crossings
+        self.crossroad = Intersection(None, branches.values(), data["center"])
 
     #
     # Text generation

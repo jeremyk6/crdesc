@@ -6,8 +6,9 @@ import tempfile
 import osmnx as ox
 import crseg.utils as u
 import crseg.segmentation as cs
-import crdesc.description as cd
-import crdesc.config as cg
+import crmodel.crmodel as cm
+import crmodel.config as cg
+import crdesc.crdesc as cd
 
 #
 # Configuration
@@ -66,8 +67,15 @@ seg = cs.Segmentation(undirected_G, C0 = 2, C1 = 2, C2 = 4, max_cycle_elements =
 seg.process()
 seg.to_json("data/intersection.json", longitude, latitude)
 
-desc = cd.Description()
-desc.computeModel(G, "data/intersection.json")
+model = cm.CrModel()
+model.computeModel(G, "data/intersection.json")
+
+with open("output/model.json", "w") as f:
+    f.write(model.getJSON())
+    f.close()
+
+desc = cd.CrDesc()
+desc.loadModel("output/model.json")
 description = desc.generateDescription()
 
 print(description["text"])
