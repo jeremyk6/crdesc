@@ -86,7 +86,7 @@ class CrDesc:
                 Crossing(None, [junctions[c_id] for c_id in b["crossing"]["crosswalks"]])
             )
 
-        self.crossroad = Intersection(None, branches.values(), data["center"])
+        self.crossroad = Intersection(None, branches.values(), ways, junctions, [branch.crossing for branch in branches.values()], data["center"])
 
     #
     # Text generation
