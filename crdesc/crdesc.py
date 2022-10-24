@@ -83,7 +83,7 @@ class CrDesc:
                 b["street_name"],
                 [ways[w_id] for w_id in b["ways"]],
                 id,
-                Crossing(None, [junctions[c_id] for c_id in b["crossing"]["crosswalks"]])
+                Crossing(None, [junctions[c_id] for c_id in b["crossing"]["crosswalks"]]) if b["crossing"]["crosswalks"] is not None else None
             )
 
         self.crossroad = Intersection(None, branches.values(), ways, junctions, [branch.crossing for branch in branches.values()], data["center"])
