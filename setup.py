@@ -14,7 +14,7 @@ with open('requirements.txt') as f:
 # This call to setup() does all the work
 setup(
     name="crdesc",
-    version="0.2.1",
+    version="0.2.2",
     description="crdesc is a python package that produces a textual description from a crmodel.",
     long_description=README,
     long_description_content_type="text/markdown",
