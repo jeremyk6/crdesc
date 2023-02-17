@@ -64,6 +64,7 @@ class CrDesc:
 
             ways[id] = Way(
                 id, 
+                None,
                 w["name"], 
                 [junctions[j_id] for j_id in w["junctions"]], 
                 channels, 
