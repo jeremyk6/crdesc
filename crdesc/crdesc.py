@@ -378,95 +378,43 @@ class CrDesc:
 
         return(json.dumps(data, ensure_ascii=False))
 
-    def getGeoJSON(self, description_structure):
-        features = []
+    def getGeoJSON(self, geojson_file, description_structure):
 
-        # Crossroad general description
-        features.append(Feature(geometry=Point([self.crossroad.center["x"], self.crossroad.center["y"]]), properties={
-            "id" : None,
-            "type" : "crossroads",
-            "description" : description_structure["general_desc"]
-        }))
+        data = json.load(open(geojson_file))
 
-        # Crossroad branch description
-        branches_ways = []
-        for (branch, branch_desc) in zip(self.crossroad.branches, description_structure["branches_desc"]):
-            for way in branch.ways:
-                n1 = way.junctions[0]
-                n2 = way.junctions[1]
-                features.append(Feature(geometry=LineString([(n1.x, n1.y), (n2.x, n2.y)]), properties={
-                    "id" : "%s;%s"%(n1.id, n2.id),
-                    "type" : "branch",
-                    "name" : "branch n°%s | %s"%(branch.number,way.name),
-                    "description" : branch_desc,
-                    "left_sidewalk" : way.sidewalks[0].id if way.sidewalks[0] else "",
-                    "right_sidewalk" : way.sidewalks[1].id if way.sidewalks[1] else "",
-                    "left_island" : way.islands[0].id if way.islands[0] else "",
-                    "right_island" : way.islands[1].id if way.islands[1] else ""
-                }))
-                branches_ways.append(way)
-        
-        # Crossroad ways
-        for way in self.crossroad.ways.values():
-            if way not in branches_ways:
-                n1 = way.junctions[0]
-                n2 = way.junctions[1]
-                features.append(Feature(geometry=LineString([(n1.x, n1.y), (n2.x, n2.y)]), properties={
-                    "id" : "%s;%s"%(n1.id, n2.id),
-                    "type" : "way",
-                    "name" : way.name,
-                    "left_sidewalk" : way.sidewalks[0].id if way.sidewalks[0] else "",
-                    "right_sidewalk" : way.sidewalks[1].id if way.sidewalks[1] else "",
-                    "left_island" : way.islands[0].id if way.islands[0] else "",
-                    "right_island" : way.islands[1].id if way.islands[1] else ""
-                }))
+        for feature in data["features"]:
+            if feature["properties"]["type"] == "crossroads":
+                feature["properties"]["description"] = description_structure["general_desc"]
 
-        # Single crosswalks descriptions
-        crosswalks = []
-        for junction in self.crossroad.junctions.values():
-            if "Crosswalk" in junction.type:
-                crosswalks.append(junction)
-        for crosswalk in crosswalks:
-            crosswalk_desc = "Le passage piéton "
+            if feature["properties"]["type"] == "branch":
+                branch_index = int(feature["properties"]["id"])-1
+                feature["properties"]["description"] =  description_structure["branches_desc"][branch_index]
 
-            if "Pedestrian_traffic_light" in crosswalk.type:
-                crosswalk_desc += "est protégé par un feu"
-                if crosswalk.ptl_sound == "yes":
-                    crosswalk_desc += " sonore. "
-                else :
-                    crosswalk_desc += ". "
-            else:
-                crosswalk_desc += "n'est pas protégé par un feu. "
+            if feature["properties"]["type"] == "crosswalk":
+                crosswalk = self.crossroad.junctions[feature["properties"]["id"]]
+                crosswalk_desc = "Le passage piéton "
+                if "Pedestrian_traffic_light" in crosswalk.type:
+                    crosswalk_desc += "est protégé par un feu"
+                    if crosswalk.ptl_sound == "yes":
+                        crosswalk_desc += " sonore. "
+                    else :
+                        crosswalk_desc += ". "
+                else:
+                    crosswalk_desc += "n'est pas protégé par un feu. "
 
-            if crosswalk.cw_tactile_paving == "yes":
-                crosswalk_desc += "Il y a des bandes d'éveil de vigilance."
-            elif crosswalk.cw_tactile_paving == "incorrect":
-                crosswalk_desc += "Il manque des bandes d'éveil de vigilance ou celles-ci sont dégradées."
-            else:
-                crosswalk_desc += "Il n'y a pas de bandes d'éveil de vigilance."
-            features.append(Feature(geometry=Point([crosswalk.x, crosswalk.y]), properties={
-                "id" : crosswalk.id,
-                "type" : "crosswalk",
-                "description" : crosswalk_desc
-            }))
+                if crosswalk.cw_tactile_paving == "yes":
+                    crosswalk_desc += "Il y a des bandes d'éveil de vigilance."
+                elif crosswalk.cw_tactile_paving == "incorrect":
+                    crosswalk_desc += "Il manque des bandes d'éveil de vigilance ou celles-ci sont dégradées."
+                else:
+                    crosswalk_desc += "Il n'y a pas de bandes d'éveil de vigilance."
+                feature["properties"]["description"] = crosswalk_desc
 
-        # Crossings description
-        for crossing, crossing_desc in zip([branch.crossing for branch in self.crossroad.branches], description_structure["crossings_desc"]):
-            if crossing is None:
-                continue
-            crosswalks = crossing.crosswalks
-            geom = None
-            id = None
-            if len(crosswalks) > 1:
-                id = ";".join(map(str,[crosswalks[i].id for i in range(len(crosswalks))]))
-                geom = LineString([(crosswalks[i].x, crosswalks[i].y) for i in range(len(crosswalks))])
-            else:
-                id = crosswalks[0].id
-                geom = Point([crosswalks[0].x, crosswalks[0].y])
-            features.append(Feature(geometry=geom, properties={
-                "id" : id,
-                "type" : "crossing",
-                "description" : crossing_desc
-            }))
+            if feature["properties"]["type"] == "crossing":
+                for branch, crossing_desc in zip([branch for branch in self.crossroad.branches], description_structure["crossings_desc"]):
+                    if branch.crossing is None:
+                        continue
+                    if feature["properties"]["branch"] == int(branch.number):
+                        feature["properties"]["description"] = crossing_desc
 
-        return(dumps(FeatureCollection(features)))
+        return(dumps(data))

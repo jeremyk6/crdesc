@@ -74,6 +74,10 @@ with open("output/model.json", "w") as f:
     f.write(model.getJSON())
     f.close()
 
+with open("output/model.geojson", "w") as f:
+    f.write(model.getGeoJSON())
+    f.close()
+
 desc = cd.CrDesc()
 desc.loadModel("output/model.json")
 description = desc.generateDescription()
@@ -87,7 +91,7 @@ if args.output:
     with open("output/"+args.output[0], "w") as f:
         content = description["text"]
         if extension == "geojson":
-            content = desc.getGeoJSON(description["structure"])
+            content = desc.getGeoJSON("output/model.geojson", description["structure"])
         if extension == "json":
             content = desc.descriptionToJSON(description["structure"])
         f.write(content)
