@@ -265,7 +265,7 @@ class CrDesc:
                 for crosswalk in crosswalks:
                     if crosswalk.cw_tactile_paving != "no":
                         n_podotactile += 1
-                    if crosswalk.cw_tactile_paving == "incorrect":
+                    if crosswalk.cw_tactile_paving in ["incorrect", "unknown"]:
                         incorrect = True
                     if "Pedestrian_traffic_light" in crosswalk.type:
                         n_ptl += 1
