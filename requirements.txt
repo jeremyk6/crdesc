@@ -1,2 +1,2 @@
-crmodel>=0.4
-pyrealb>=2.3.1
+crmodel
+pyrealb
